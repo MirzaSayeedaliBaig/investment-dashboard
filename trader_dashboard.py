@@ -16,7 +16,7 @@ if password != "boss123":
 # 3. CONNECT TO GOOGLE SHEET
 # REPLACE THIS URL with your actual "Publish to Web" CSV link from Part 2
 # It will look like: https://docs.google.com/spreadsheets/d/e/2PACX.../pub?output=csv
-sheet_url = "YOUR_GOOGLE_SHEET_CSV_LINK_HERE" 
+sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vST3-6dJCY8iK1CbaRRFHFEohC4qc0yoU2TdcCXvYUmsxSMXXvhjj1UHvr6qS6UyPi_XkzhaWXJKk3S/pub?output=csv" 
 
 # Check if user put the link in yet
 try:
