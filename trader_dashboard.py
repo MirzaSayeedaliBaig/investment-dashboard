@@ -44,18 +44,31 @@ else:
     df['Monthly Payout'] = (df['Amount'] * df['ROI']) / 100
 
     # --- CALCULATE TIME LEFT (11 Months) ---
-    today = pd.to_datetime("today")
+# --- LOGIC: CALCULATE TIME LEFT ---
+    today = pd.to_datetime("today").normalize() # Get today's date
     
-    def get_months_passed(start_date):
+    def calculate_status(start_date):
+        # Calculate the difference between NOW and START DATE
         delta = relativedelta(today, start_date)
-        return delta.years * 12 + delta.months
+        months_passed = delta.years * 12 + delta.months
+        
+        # FIX 1: If start date is in the future (negative passed), set passed to 0
+        if months_passed < 0:
+            months_passed = 0
+            
+        months_left = 11 - months_passed
+        
+        # FIX 2: If contract is over (negative left), set left to 0
+        if months_left < 0:
+            months_left = 0
+            
+        return months_left
 
-    df['Months Passed'] = df['Date'].apply(get_months_passed)
-    df['Months Left'] = 11 - df['Months Passed']
+    # Apply this new smart logic
+    df['Months Left'] = df['Date'].apply(calculate_status)
     
-    # Filter: Only show active deals
+    # Filter: Only show active deals (Months Left > 0)
     active_df = df[df['Months Left'] > 0]
-
     # --- METRICS THE BOSS WANTS ---
     # 1. Total Money Held
     total_held = active_df['Amount'].sum()
