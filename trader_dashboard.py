@@ -1,110 +1,94 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
-from dateutil.relativedelta import relativedelta
 
 # 1. PAGE CONFIG
-st.set_page_config(page_title="Boss Admin Panel", layout="wide", page_icon="💼")
+st.set_page_config(page_title="Trader Admin Panel", layout="wide", page_icon="💼")
+st.title("💼 Trader Command Center")
 
-# 2. AUTHENTICATION (Boss Only)
-# In real life, hide this password logic better, but for now:
-password = st.sidebar.text_input("🔑 Admin Password", type="password")
-if password != "boss123":
-    st.warning("Please login to view financial data.")
-    st.stop()
+# 2. CONNECT TO GOOGLE SHEET
+# REPLACE with your actual CSV link
+sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vST3-6dJCY8iK1CbaRRFHFEohC4qc0yoU2TdcCXvYUmsxSMXXvhjj1UHvr6qS6UyPi_XkzhaWXJKk3S/pub?output=csv"
 
-# 3. CONNECT TO GOOGLE SHEET
-# REPLACE THIS URL with your actual "Publish to Web" CSV link from Part 2
-# It will look like: https://docs.google.com/spreadsheets/d/e/2PACX.../pub?output=csv
-sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vST3-6dJCY8iK1CbaRRFHFEohC4qc0yoU2TdcCXvYUmsxSMXXvhjj1UHvr6qS6UyPi_XkzhaWXJKk3S/pub?output=csv" 
-
-# Check if user put the link in yet
 try:
-    # Use on_bad_lines='skip' to avoid errors if the sheet is empty
     df = pd.read_csv(sheet_url)
     
-    # RENAME columns to match our code logic if needed, or ensure Sheet headers match these:
-    # We expect columns: Name, Amount, Date, ROI
+    # CLEANING: Make sure we don't have spaces in names (e.g. "Rahul " vs "Rahul")
+    # This fixes the most common bug where names don't match
+    df['Name'] = df['Name'].astype(str).str.strip().str.title()
+    df['Type'] = df['Type'].astype(str).str.strip()
+
 except:
-    st.error("⚠️ Could not connect to Google Sheet. Please check the link.")
+    st.error("⚠️ Waiting for data... (Check your CSV link or Google Sheet)")
     st.stop()
 
-# 4. DASHBOARD LOGIC
-st.title("💼 Trader Command Center")
-st.markdown("### Live Overview")
-
 if df.empty:
-    st.info("No data found in the Google Sheet yet.")
+    st.info("No data in sheet yet.")
 else:
-    # --- DATA CLEANING ---
-    # Ensure Date is actually a date format
-    df['Date'] = pd.to_datetime(df['Date'])
+    # ---------------------------------------------------------
+    # THE LOGIC: COUNTING PAYOUTS
+    # ---------------------------------------------------------
     
-    # Calculate Monthly Payout (Amount * ROI / 100)
-    df['Monthly Payout'] = (df['Amount'] * df['ROI']) / 100
+    # 1. Get all the "Investment" rows (The people who gave money)
+    investments = df[df['Type'] == 'Investment'].copy()
+    
+    # 2. Get all the "Payout" rows (The times you paid them back)
+    payouts = df[df['Type'] == 'Payout'].copy()
+    
+    # 3. Count how many times each person has been paid
+    # This creates a list like: {'Rahul': 2, 'Priya': 5}
+    payout_counts = payouts['Name'].value_counts()
 
-    # --- CALCULATE TIME LEFT (11 Months) ---
-# --- LOGIC: CALCULATE TIME LEFT ---
-    today = pd.to_datetime("today").normalize() # Get today's date
-    
-    def calculate_status(start_date):
-        # Calculate the difference between NOW and START DATE
-        delta = relativedelta(today, start_date)
-        months_passed = delta.years * 12 + delta.months
+    # 4. The Magic Formula
+    def calculate_remaining(row):
+        person_name = row['Name']
         
-        # FIX 1: If start date is in the future (negative passed), set passed to 0
-        if months_passed < 0:
-            months_passed = 0
-            
-        months_left = 11 - months_passed
+        # Look up how many times we paid this person. If 0 times, return 0.
+        times_paid = payout_counts.get(person_name, 0)
         
-        # FIX 2: If contract is over (negative left), set left to 0
-        if months_left < 0:
-            months_left = 0
-            
-        return months_left
+        # 11 Months - Times Paid
+        months_left = 11 - times_paid
+        
+        # Safety: Don't let it show negative numbers
+        return max(months_left, 0)
 
-    # Apply this new smart logic
-    df['Months Left'] = df['Date'].apply(calculate_status)
+    # Apply the formula to every investor
+    investments['Months Left'] = investments.apply(calculate_remaining, axis=1)
     
-    # Filter: Only show active deals (Months Left > 0)
-    active_df = df[df['Months Left'] > 0]
-    # --- METRICS THE BOSS WANTS ---
-    # 1. Total Money Held
-    total_held = active_df['Amount'].sum()
-    
-    # 2. Total Monthly Liability (What he pays out every month)
-    monthly_bill = active_df['Monthly Payout'].sum()
-    
-    # 3. Total Profit Estimate (Assuming he makes 10% profit but pays 5%)
-    # This is optional, but cool for him to see
-    
-    # DISPLAY METRICS
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Total Funds Managed", f"₹{total_held:,.0f}")
-    col2.metric("⚠️ Monthly Payout Due", f"₹{monthly_bill:,.0f}", "Fixed Liability")
-    col3.metric("👥 Active Investors", f"{len(active_df)}")
+    # ---------------------------------------------------------
+    # DASHBOARD DISPLAY
+    # ---------------------------------------------------------
 
-    st.divider()
+    # Filter: Only show people who still have months left
+    active_deals = investments[investments['Months Left'] > 0]
 
-    # --- THE DETAILED TRACKER ---
-    st.subheader("⏳ Investor Time Tracker")
-    
-    # Create a nice display table
-    display_df = active_df[['Name', 'Amount', 'Monthly Payout', 'Date', 'Months Left']]
-    
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        column_config={
-            "Months Left": st.column_config.ProgressColumn(
-                "Time Remaining",
-                format="%d months left",
-                min_value=0,
-                max_value=11,
-            ),
-            "Amount": st.column_config.NumberColumn(format="₹%d"),
-            "Monthly Payout": st.column_config.NumberColumn(format="₹%d"),
-            "Date": st.column_config.DateColumn("Start Date")
-        }
-    )
+    if active_deals.empty:
+        st.success("🎉 All investors have been fully paid!")
+    else:
+        # Top Metrics
+        total_held = active_deals['Amount'].sum()
+        active_count = len(active_deals)
+        
+        # Display Metrics
+        col1, col2 = st.columns(2)
+        col1.metric("💰 Total Active Capital", f"₹{total_held:,.0f}")
+        col2.metric("👥 Active Investors", f"{active_count}")
+
+        st.divider()
+        st.subheader("⏳ Payment Status (11-Month Cycle)")
+
+        # Display the Table
+        st.dataframe(
+            active_deals[['Name', 'Amount', 'Date', 'Months Left']],
+            use_container_width=True,
+            column_config={
+                "Months Left": st.column_config.ProgressColumn(
+                    "Remaining Payouts",
+                    format="%d months left",
+                    min_value=0,
+                    max_value=11,
+                    help="Decreases every time you submit a Payout form"
+                ),
+                "Amount": st.column_config.NumberColumn(format="₹%d"),
+                "Date": st.column_config.DateColumn("Start Date")
+            }
+        )
