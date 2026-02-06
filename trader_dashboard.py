@@ -1,80 +1,88 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 # 1. PAGE CONFIG
 st.set_page_config(page_title="Trader Admin Panel", layout="wide", page_icon="💼")
 st.title("💼 Trader Command Center")
 
 # 2. CONNECT TO GOOGLE SHEET
-# REPLACE with your actual CSV link
+# REPLACE THIS WITH YOUR LINK
 sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vST3-6dJCY8iK1CbaRRFHFEohC4qc0yoU2TdcCXvYUmsxSMXXvhjj1UHvr6qS6UyPi_XkzhaWXJKk3S/pub?output=csv"
 
 try:
     df = pd.read_csv(sheet_url)
     
-    # CLEANING: Make sure we don't have spaces in names (e.g. "Rahul " vs "Rahul")
-    # This fixes the most common bug where names don't match
-    df['Name'] = df['Name'].astype(str).str.strip().str.title()
-    df['Type'] = df['Type'].astype(str).str.strip()
+    # --- CRITICAL FIX: DATE PARSING ---
+    # This tells Python: "Expect Day First!" (e.g. 05/11 is 5th Nov, not May 11th)
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
 
 except:
-    st.error("⚠️ Waiting for data... (Check your CSV link or Google Sheet)")
+    st.error("⚠️ Waiting for data... (Check your CSV link)")
     st.stop()
 
 if df.empty:
     st.info("No data in sheet yet.")
 else:
     # ---------------------------------------------------------
-    # THE LOGIC: COUNTING PAYOUTS
+    # THE LOGIC: ROBUST MONTH CALCULATOR
     # ---------------------------------------------------------
     
-    # 1. Get all the "Investment" rows (The people who gave money)
-    investments = df[df['Type'] == 'Investment'].copy()
+    # Get today's date
+    now = datetime.now()
     
-    # 2. Get all the "Payout" rows (The times you paid them back)
-    payouts = df[df['Type'] == 'Payout'].copy()
-    
-    # 3. Count how many times each person has been paid
-    # This creates a list like: {'Rahul': 2, 'Priya': 5}
-    payout_counts = payouts['Name'].value_counts()
+    def calculate_months_left(start_date):
+        if pd.isnull(start_date): # Check for bad dates
+            return 0
+            
+        # THE MATH FORMULA:
+        # (Difference in Years * 12) + (Difference in Months)
+        # Ex: Feb 2026 vs Nov 2025
+        # (1 Year * 12) + (2 - 11) = 12 - 9 = 3 Months Passed
+        
+        diff_years = now.year - start_date.year
+        diff_months = now.month - start_date.month
+        
+        months_passed = (diff_years * 12) + diff_months
+        
+        # Calculate Left
+        months_left = 11 - months_passed
+        
+        # SAFETY CAPS:
+        # 1. If date is in future, don't show more than 11
+        if months_left > 11:
+            return 11
+        # 2. If time is up, don't show negative
+        if months_left < 0:
+            return 0
+            
+        return months_left
 
-    # 4. The Magic Formula
-    def calculate_remaining(row):
-        person_name = row['Name']
-        
-        # Look up how many times we paid this person. If 0 times, return 0.
-        times_paid = payout_counts.get(person_name, 0)
-        
-        # 11 Months - Times Paid
-        months_left = 11 - times_paid
-        
-        # Safety: Don't let it show negative numbers
-        return max(months_left, 0)
-
-    # Apply the formula to every investor
-    investments['Months Left'] = investments.apply(calculate_remaining, axis=1)
+    # Apply the math
+    df['Months Left'] = df['Date'].apply(calculate_months_left)
     
+    # Filter for active investors (where time is not 0)
+    active_deals = df[df['Months Left'] > 0]
+
     # ---------------------------------------------------------
     # DASHBOARD DISPLAY
     # ---------------------------------------------------------
 
-    # Filter: Only show people who still have months left
-    active_deals = investments[investments['Months Left'] > 0]
-
     if active_deals.empty:
-        st.success("🎉 All investors have been fully paid!")
+        st.success("🎉 All contracts are finished!")
     else:
         # Top Metrics
         total_held = active_deals['Amount'].sum()
-        active_count = len(active_deals)
+        # Monthly payout is usually Amount * ROI% / 100
+        # If your CSV has 'ROI', uncomment the next line:
+        # active_deals['Monthly Payout'] = active_deals['Amount'] * active_deals['ROI'] / 100
         
-        # Display Metrics
         col1, col2 = st.columns(2)
         col1.metric("💰 Total Active Capital", f"₹{total_held:,.0f}")
-        col2.metric("👥 Active Investors", f"{active_count}")
+        col2.metric("👥 Active Investors", f"{len(active_deals)}")
 
         st.divider()
-        st.subheader("⏳ Payment Status (11-Month Cycle)")
+        st.subheader("⏳ Time Tracker (Auto-Decreasing)")
 
         # Display the Table
         st.dataframe(
@@ -82,13 +90,12 @@ else:
             use_container_width=True,
             column_config={
                 "Months Left": st.column_config.ProgressColumn(
-                    "Remaining Payouts",
+                    "Countdown",
                     format="%d months left",
                     min_value=0,
                     max_value=11,
-                    help="Decreases every time you submit a Payout form"
                 ),
                 "Amount": st.column_config.NumberColumn(format="₹%d"),
-                "Date": st.column_config.DateColumn("Start Date")
+                "Date": st.column_config.DateColumn("Start Date", format="DD/MM/YYYY")
             }
         )
