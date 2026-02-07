@@ -8,7 +8,7 @@ st.title("💼 Trader Command Center")
 
 # 2. CONNECT TO GOOGLE SHEET
 # REPLACE THIS WITH YOUR LINK
-sheet_url = "YOUR_GOOGLE_SHEET_CSV_LINK_HERE"
+sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vST3-6dJCY8iK1CbaRRFHFEohC4qc0yoU2TdcCXvYUmsxSMXXvhjj1UHvr6qS6UyPi_XkzhaWXJKk3S/pub?output=csv"
 
 try:
     df = pd.read_csv(sheet_url)
